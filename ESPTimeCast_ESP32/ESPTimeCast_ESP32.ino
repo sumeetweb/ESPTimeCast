@@ -39,32 +39,38 @@ See LICENSE.txt for full terms.
 // ============================
 // LEGACY fallback pins (used ONLY for migration)
 // ============================
-#if defined(CONFIG_IDF_TARGET_ESP32S2)
-#define L_CLK 7
-#define L_CS 11
-#define L_DATA 12
-
-#elif defined(CONFIG_IDF_TARGET_ESP32S3)
-#define L_CLK 18
-#define L_CS 16
-#define L_DATA 17
-
-#elif defined(CONFIG_IDF_TARGET_ESP32C3)
-#define L_CLK 4
-#define L_CS 10
-#define L_DATA 6
-
-#elif defined(ESP32)
-#define L_CLK 18
-#define L_CS 23
-#define L_DATA 5
-
-#else
+#if !defined(ESP32)
 #error "Unsupported board!"
 #endif
 
+#ifndef CONFIG_IDF_TARGET_ESP32S2
+#define CONFIG_IDF_TARGET_ESP32S2 0
+#endif
+
+#ifndef CONFIG_IDF_TARGET_ESP32S3
+#define CONFIG_IDF_TARGET_ESP32S3 0
+#endif
+
+#ifndef CONFIG_IDF_TARGET_ESP32C3
+#define CONFIG_IDF_TARGET_ESP32C3 0
+#endif
+
+static constexpr int L_CLK = CONFIG_IDF_TARGET_ESP32S2 ? 7 : CONFIG_IDF_TARGET_ESP32S3 ? 4
+                                                       : CONFIG_IDF_TARGET_ESP32C3   ? 4
+                                                                                     : 18;
+static constexpr int L_CS = CONFIG_IDF_TARGET_ESP32S2 ? 11 : CONFIG_IDF_TARGET_ESP32S3 ? 9
+                                                       : CONFIG_IDF_TARGET_ESP32C3   ? 10
+                                                                                     : 23;
+static constexpr int L_DATA = CONFIG_IDF_TARGET_ESP32S2 ? 12 : CONFIG_IDF_TARGET_ESP32S3 ? 6
+                                                         : CONFIG_IDF_TARGET_ESP32C3   ? 6
+                                                                                       : 5;
+static constexpr int UPSTREAM_S3_CLK = 18;
+static constexpr int UPSTREAM_S3_CS = 16;
+static constexpr int UPSTREAM_S3_DATA = 17;
+
 #define HARDWARE_TYPE MD_MAX72XX::FC16_HW
 #define MAX_DEVICES 4
+static constexpr size_t CONFIG_JSON_CAPACITY = 4096;
 
 #ifdef ESP8266
 WiFiEventHandler mConnectHandler;
@@ -348,7 +354,7 @@ void loadConfig() {
   // Check if config.json exists, if not, create default
   if (!LittleFS.exists("/config.json")) {
     Serial.println(F("[CONFIG] config.json not found, creating with defaults..."));
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
     doc[F("ssid")] = "";
     doc[F("password")] = "";
     doc[F("openWeatherApiKey")] = "";
@@ -414,7 +420,7 @@ void loadConfig() {
     return;
   }
 
-  DynamicJsonDocument doc(1024);  // Size based on ArduinoJson Assistant + buffer
+  DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
   DeserializationError error = deserializeJson(doc, configFile);
   configFile.close();
 
@@ -1276,7 +1282,7 @@ void setupWebServer() {
       request->send(500, "application/json", "{\"error\":\"Failed to open config.json\"}");
       return;
     }
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
     DeserializationError err = deserializeJson(doc, f);
     f.close();
     if (err) {
@@ -1299,7 +1305,7 @@ void setupWebServer() {
 
   server.on("/save", HTTP_POST, [](AsyncWebServerRequest *request) {
     Serial.println(F("[WEBSERVER] Request: /save"));
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
 
     File configFile = LittleFS.open("/config.json", "r");
     if (configFile) {
@@ -1314,7 +1320,7 @@ void setupWebServer() {
       Serial.println(F("[WEBSERVER] config.json not found, starting with empty doc for save."));
     }
 
-    for (int i = 0; i < request->params(); i++) {
+    for (size_t i = 0; i < request->params(); i++) {
       const AsyncWebParameter *p = request->getParam(i);
       String n = p->name();
       String v = p->value();
@@ -1444,7 +1450,7 @@ void setupWebServer() {
     }
     verify.seek(0);
 
-    DynamicJsonDocument test(2048);
+    DynamicJsonDocument test(CONFIG_JSON_CAPACITY);
     DeserializationError err = deserializeJson(test, verify);
     verify.close();
 
@@ -1548,7 +1554,7 @@ void setupWebServer() {
     if (request->hasParam("value", true)) {
       value = request->getParam("value", true)->value();
     } else if (request->params() > 0) {
-      value = request->getParam(0)->value();
+      value = request->getParam(static_cast<size_t>(0))->value();
     }
     executeAction(action, value);
     request->send(200, "application/json", "{\"ok\":true}");
@@ -1586,7 +1592,7 @@ void setupWebServer() {
     if (request->hasParam("value", true)) {
       value = request->getParam("value", true)->value();
     } else if (request->params() > 0) {
-      value = request->getParam(0)->value();
+      value = request->getParam(static_cast<size_t>(0))->value();
     }
     hideDonationMsg = (value == "1" || value == "true" || value == "on");
     saveConfigRuntime();
@@ -1623,7 +1629,8 @@ void setupWebServer() {
       } else {
         // Handle other actions (brightness, etc.)
         if (request->params() > 0) {
-          executeAction(request->getParam(0)->name(), request->getParam(0)->value());
+          const AsyncWebParameter *p = request->getParam(static_cast<size_t>(0));
+          executeAction(p->name(), p->value());
           request->send(200, "text/plain", "OK");
         } else {
           request->send(400, "text/plain", "No parameters found");
@@ -1909,7 +1916,7 @@ void setupWebServer() {
       return;
     }
 
-    DynamicJsonDocument doc(2048);
+    DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
     DeserializationError err = deserializeJson(doc, f);
     f.close();
     if (err) {
@@ -2641,7 +2648,7 @@ void fetchWeather() {
     // -----------------------------------------
     if (autoDimmingEnabled && sunriseHour >= 0 && sunsetHour >= 0) {
       File configFile = LittleFS.open("/config.json", "r");
-      DynamicJsonDocument doc(1024);
+      DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
 
       if (configFile) {
         DeserializationError error = deserializeJson(doc, configFile);
@@ -2900,7 +2907,7 @@ String formatTotalRuntime() {
 void saveCustomMessageToConfig(const char *msg) {
   Serial.println(F("[CONFIG] Updating customMessage in config.json..."));
 
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
 
   // Load existing config.json (if present)
   File configFile = LittleFS.open("/config.json", "r");
@@ -3513,6 +3520,18 @@ void loadPins() {
   CS_PIN = prefs.getInt("cs", L_CS);
   DATA_PIN = prefs.getInt("data", L_DATA);
 
+#if CONFIG_IDF_TARGET_ESP32S3
+  if (CLK_PIN == UPSTREAM_S3_CLK && CS_PIN == UPSTREAM_S3_CS && DATA_PIN == UPSTREAM_S3_DATA) {
+    Serial.println("[PIN CONFIG] stored pins match upstream ESP32-S3 defaults - migrating to S3 Super Mini wiring");
+    CLK_PIN = L_CLK;
+    CS_PIN = L_CS;
+    DATA_PIN = L_DATA;
+    prefs.putInt("clk", CLK_PIN);
+    prefs.putInt("cs", CS_PIN);
+    prefs.putInt("data", DATA_PIN);
+  }
+#endif
+
   // Validation + fallback (optional improvement below)
   if (CLK_PIN < 0 || CS_PIN < 0 || DATA_PIN < 0) {
     Serial.println("[PIN CONFIG] Invalid pins - fallback to defaults");
@@ -3846,7 +3865,7 @@ bool isModeAvailable(int mode) {
 
 //config save after countdown finishes
 bool saveCountdownConfig(bool enabled, time_t targetTimestamp, const String &label) {
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
 
   File configFile = LittleFS.open("/config.json", "r");
   if (configFile) {
@@ -3888,7 +3907,7 @@ bool saveCountdownConfig(bool enabled, time_t targetTimestamp, const String &lab
 
 bool saveConfigRuntime() {
 
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(CONFIG_JSON_CAPACITY);
 
   File configFile = LittleFS.open("/config.json", "r");
   if (!configFile) {
