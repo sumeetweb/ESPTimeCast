@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ESPTimeCast Lyrics Sync</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Lyrics Sync</h1>
+        <span id="deviceStatus" class="pill">Unknown</span>
+      </header>
+
+      <label for="deviceUrl">ESPTimeCast URL</label>
+      <div class="row">
+        <input id="deviceUrl" type="url" spellcheck="false" placeholder="http://esptimecast.local">
+        <button id="testDevice" type="button">Test</button>
+      </div>
+
+      <label class="toggle">
+        <input id="syncEnabled" type="checkbox">
+        <span>Sync lyrics to display</span>
+      </label>
+
+      <section>
+        <h2>Player</h2>
+        <dl>
+          <dt>Source</dt>
+          <dd id="source">Not detected</dd>
+          <dt>Track</dt>
+          <dd id="track">-</dd>
+          <dt>Status</dt>
+          <dd id="lyricStatus">Idle</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Current line</h2>
+        <p id="currentLine">-</p>
+      </section>
+
+      <p id="error" class="error" hidden></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

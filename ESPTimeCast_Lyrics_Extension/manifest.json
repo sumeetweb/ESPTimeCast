@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "ESPTimeCast Lyrics Sync",
+  "version": "0.1.0",
+  "description": "Sync LRCLIB lyrics from web music players to ESPTimeCast.",
+  "permissions": ["storage", "tabs", "activeTab"],
+  "host_permissions": [
+    "http://*/*",
+    "https://lrclib.net/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://music.apple.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "ESPTimeCast Lyrics Sync",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*", "https://music.youtube.com/*"],
+      "js": ["content/youtube.js"]
+    },
+    {
+      "matches": ["https://music.apple.com/*"],
+      "js": ["content/apple-music.js"]
+    }
+  ]
+}
