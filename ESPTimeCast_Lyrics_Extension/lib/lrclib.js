@@ -12,7 +12,19 @@ export function selectBestSyncedLyrics(results) {
   return results.find((item) => typeof item.syncedLyrics === "string" && item.syncedLyrics.trim()) || null;
 }
 
-export async function searchSyncedLyrics(track, fetchImpl = fetch) {
+export function selectBestLyrics(results) {
+  if (!Array.isArray(results)) return null;
+
+  const synced = selectBestSyncedLyrics(results);
+  if (synced) return { type: "synced", result: synced };
+
+  const plain = results.find((item) => typeof item.plainLyrics === "string" && item.plainLyrics.trim());
+  if (plain) return { type: "plain", result: plain };
+
+  return null;
+}
+
+export async function searchLyrics(track, fetchImpl = fetch) {
   const response = await fetchImpl(buildLrclibSearchUrl(track), {
     headers: {
       Accept: "application/json"
@@ -24,5 +36,10 @@ export async function searchSyncedLyrics(track, fetchImpl = fetch) {
   }
 
   const results = await response.json();
-  return selectBestSyncedLyrics(results);
+  return selectBestLyrics(results);
+}
+
+export async function searchSyncedLyrics(track, fetchImpl = fetch) {
+  const selected = await searchLyrics(track, fetchImpl);
+  return selected?.type === "synced" ? selected.result : null;
 }

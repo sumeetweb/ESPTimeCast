@@ -2,8 +2,11 @@ import { DEFAULT_DEVICE_URL, normalizeDeviceUrl } from "./lib/config.js";
 import { clearDeviceMessage, sendLyricLine, testDeviceConnection } from "./lib/device-api.js";
 import { parseSyncedLyrics } from "./lib/lrc.js";
 import { selectLyricDisplayChunk } from "./lib/lyric-display.js";
-import { searchSyncedLyrics } from "./lib/lrclib.js";
+import { searchLyrics } from "./lib/lrclib.js";
+import { plainLyricsToTimedLines } from "./lib/plain-lyrics.js";
+import { createPlaybackSendState, notePaused, noteSent, shouldSendChunk } from "./lib/playback-state.js";
 import { cleanTrackMetadata, makeTrackKey } from "./lib/title-cleaner.js";
+import { getCachedLyricsStatus, hasTrackChanged, resetForTrackChange } from "./lib/track-state.js";
 
 const DEFAULT_SETTINGS = {
   deviceUrl: DEFAULT_DEVICE_URL,
@@ -21,8 +24,9 @@ const state = {
   error: "",
   lyrics: [],
   lyricsTrackKey: "",
+  lyricsType: "",
   fetchInFlight: null,
-  lastSentLine: "",
+  sendState: createPlaybackSendState(),
   lastPlayerAt: 0
 };
 
@@ -122,10 +126,17 @@ async function updatePlayerState(player) {
   }
 
   state.detectedTrack = cleanTrackMetadata(state.player);
-  state.trackKey = makeTrackKey({
+  const nextTrackKey = makeTrackKey({
     source: state.player.source,
     ...state.detectedTrack
   });
+
+  if (hasTrackChanged(state, nextTrackKey)) {
+    await clearCurrentLine();
+    resetForTrackChange(state, nextTrackKey);
+  } else {
+    state.trackKey = nextTrackKey;
+  }
 
   if (state.player.paused) {
     state.lyricStatus = "paused";
@@ -138,28 +149,40 @@ async function updatePlayerState(player) {
 }
 
 async function ensureLyricsForCurrentTrack() {
-  if (state.lyricsTrackKey === state.trackKey && state.lyrics.length > 0) return;
+  const cachedStatus = getCachedLyricsStatus(state);
+  if (cachedStatus) {
+    state.lyricStatus = cachedStatus;
+    return;
+  }
+
   if (state.fetchInFlight && state.fetchInFlight.trackKey === state.trackKey) {
     await state.fetchInFlight.promise;
     return;
   }
 
   state.lyricStatus = "searching";
-  state.currentLine = "";
   state.lyrics = [];
   state.lyricsTrackKey = "";
-  state.lastSentLine = "";
+  state.lyricsType = "";
+  notePaused(state.sendState);
 
-  const promise = searchSyncedLyrics(state.detectedTrack)
-    .then((result) => {
-      if (!result) {
+  const promise = searchLyrics(state.detectedTrack)
+    .then((selection) => {
+      if (!selection) {
         state.lyricStatus = "no-synced-lyrics";
         return;
       }
 
-      state.lyrics = parseSyncedLyrics(result.syncedLyrics);
+      state.lyrics =
+        selection.type === "synced"
+          ? parseSyncedLyrics(selection.result.syncedLyrics)
+          : plainLyricsToTimedLines(selection.result.plainLyrics, state.player.duration);
       state.lyricsTrackKey = state.trackKey;
-      state.lyricStatus = state.lyrics.length > 0 ? "synced" : "no-synced-lyrics";
+      state.lyricsType = selection.type === "synced" ? "synced" : "plain-lyrics";
+      state.lyricStatus =
+        state.lyrics.length > 0
+          ? state.lyricsType
+          : "no-lyrics";
     })
     .catch((error) => {
       state.lyricStatus = "lyrics-api-error";
@@ -174,18 +197,18 @@ async function ensureLyricsForCurrentTrack() {
 }
 
 async function sendCurrentLine() {
-  if (state.lyricStatus !== "synced") return;
+  if (state.lyricStatus !== "synced" && state.lyricStatus !== "plain-lyrics") return;
 
   const chunk = selectLyricDisplayChunk(state.lyrics, state.player.position);
   const displayLine = chunk?.text || "";
 
-  if (!displayLine || displayLine === state.lastSentLine) return;
+  if (!shouldSendChunk(state.sendState, displayLine)) return;
 
   try {
     await sendLyricLine(state.settings.deviceUrl, displayLine);
     state.deviceStatus = "connected";
     state.currentLine = displayLine;
-    state.lastSentLine = displayLine;
+    noteSent(state.sendState, displayLine);
     state.error = "";
   } catch (error) {
     state.deviceStatus = "error";
@@ -194,12 +217,13 @@ async function sendCurrentLine() {
 }
 
 async function clearCurrentLine() {
-  if (!state.lastSentLine && !state.currentLine) return;
+  if (!state.sendState.lastSentLine && !state.currentLine) return;
+
+  notePaused(state.sendState);
+  state.currentLine = "";
 
   try {
     await clearDeviceMessage(state.settings.deviceUrl);
-    state.currentLine = "";
-    state.lastSentLine = "";
   } catch (error) {
     state.deviceStatus = "error";
     state.error = error.message;

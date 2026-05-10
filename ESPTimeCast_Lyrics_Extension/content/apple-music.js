@@ -1,4 +1,5 @@
 const SOURCE = "apple-music";
+let observedMedia = null;
 
 setInterval(reportPlayerState, 250);
 reportPlayerState();
@@ -6,6 +7,7 @@ reportPlayerState();
 function reportPlayerState() {
   const media = document.querySelector("audio, video");
   if (!media) return;
+  observeMedia(media);
 
   const metadata = readMediaSessionMetadata();
   const fallback = readAppleMusicMetadata();
@@ -26,6 +28,15 @@ function reportPlayerState() {
       url: location.href
     }
   }).catch(() => {});
+}
+
+function observeMedia(media) {
+  if (observedMedia === media) return;
+  observedMedia = media;
+
+  for (const eventName of ["play", "pause", "seeked", "loadedmetadata"]) {
+    media.addEventListener(eventName, reportPlayerState, { passive: true });
+  }
 }
 
 function readMediaSessionMetadata() {

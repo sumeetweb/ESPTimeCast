@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLrclibSearchUrl, selectBestSyncedLyrics } from "../lib/lrclib.js";
+import { buildLrclibSearchUrl, selectBestLyrics, selectBestSyncedLyrics } from "../lib/lrclib.js";
 
 test("builds an encoded LRCLIB search URL from track metadata", () => {
   const url = buildLrclibSearchUrl({
@@ -26,4 +26,25 @@ test("selects the first result with synced lyrics", () => {
 
 test("returns null when no result has synced lyrics", () => {
   assert.equal(selectBestSyncedLyrics([{ id: 1, plainLyrics: "Line" }]), null);
+});
+
+test("selects synced lyrics before plain lyrics", () => {
+  const result = selectBestLyrics([
+    { id: 1, plainLyrics: "Plain line" },
+    { id: 2, syncedLyrics: "[00:01.00]Synced line", plainLyrics: "Synced line" }
+  ]);
+
+  assert.deepEqual(result, {
+    type: "synced",
+    result: { id: 2, syncedLyrics: "[00:01.00]Synced line", plainLyrics: "Synced line" }
+  });
+});
+
+test("falls back to plain lyrics when synced lyrics are unavailable", () => {
+  const result = selectBestLyrics([{ id: 1, plainLyrics: "Plain line" }]);
+
+  assert.deepEqual(result, {
+    type: "plain",
+    result: { id: 1, plainLyrics: "Plain line" }
+  });
 });
